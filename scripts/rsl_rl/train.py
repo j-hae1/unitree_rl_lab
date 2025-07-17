@@ -152,7 +152,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             "video_folder": os.path.join(log_dir, "videos", "train"),
             "step_trigger": lambda step: step % args_cli.video_interval == 0,
             "video_length": args_cli.video_length,
-            "disable_logger": True,
+            "disable_logger": False,  # True
         }
         print("[INFO] Recording videos during training.")
         print_dict(video_kwargs, nesting=4)
