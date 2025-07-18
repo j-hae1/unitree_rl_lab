@@ -171,7 +171,7 @@ def air_time_variance_penalty(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg
 Feet Gait rewards.
 """
 
-
+# _reward_contact in unitree_rl_gym
 def feet_gait(
     env: ManagerBasedRLEnv,
     period: float,
@@ -181,7 +181,8 @@ def feet_gait(
     command_name=None,
 ) -> torch.Tensor:
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    is_contact = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids] > 0
+    # is_contact = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids] > 0
+    is_contact = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, 2] > 1.0
 
     global_phase = ((env.episode_length_buf * env.step_dt) % period / period).unsqueeze(1)
     phases = []
@@ -236,7 +237,8 @@ def feet_swing_height(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg
     """
     # Penalize feet sliding
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    contacts = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > 1.0
+    # contacts = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > 1.0
+    contacts = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, 2] > 1.0
     asset = env.scene[asset_cfg.name]
     
     pos_error = torch.square(asset.data.body_pos_w[:, asset_cfg.body_ids, 2] - target_height) * ~contacts
@@ -244,7 +246,7 @@ def feet_swing_height(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg
     reward = torch.sum(pos_error, dim=1)
     return reward
 
-
+# contact_no_vel
 def feet_slide_v2(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Penalize feet sliding.
 
@@ -254,9 +256,27 @@ def feet_slide_v2(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg = S
     """
     # Penalize feet sliding
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
-    contacts = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > 1.0
+    # contacts_w_history = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > 1.0
+    # contacts = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :].norm(dim=-1) > 1.0
+    contacts = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, 2] > 1.0
     asset = env.scene[asset_cfg.name]
 
     body_vel = asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :3]  # :2]
     reward = torch.sum(body_vel.norm(dim=-1) * contacts, dim=1)
     return reward
+
+def terminated_except_timeout(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Terminate the episode if the robot is not moving for a certain amount of time."""
+    
+    # root_height_below_minimum
+    asset: RigidObject = env.scene[asset_cfg.name]
+    root_height_below_minimum = asset.data.root_pos_w[:, 2] < 0.2
+    
+    from unitree_rl_lab.tasks.locomotion.mdp.terminations import bad_pelvis_ori
+    
+    _bad_pelvis_ori = bad_pelvis_ori(env, asset_cfg=asset_cfg)
+    terminated = root_height_below_minimum | _bad_pelvis_ori
+    return terminated
